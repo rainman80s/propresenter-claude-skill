@@ -298,6 +298,82 @@ spreadsheet row) plus "use the Theme called X, layout Y," Claude can
 produce a correctly-styled new slide directly. See
 `examples/build_slides_from_theme_and_text.py`.
 
+## Starting a brand-new Presentation: never build one from scratch
+
+Confirmed by a real failure, twice in a row, on a real production sermon
+deck:
+
+1. A `Presentation()` constructed from scratch (only `name`/`uuid`/`cues`/
+   `cue_groups` set) opened in ProPresenter with the document valid but
+   **application_info, background, chord_chart, ccli, and timeline all
+   silently absent** — every one of those fields a real `.pro` file has
+   populated. Fixed by cloning a real Presentation instead.
+2. That alone was NOT enough — the document still showed **zero slides** in
+   ProPresenter's slide grid. The cause: a freshly-constructed `CueGroup`
+   has an empty/default `group.uuid`. ProPresenter appears to key slide-
+   group registration off that UUID and won't display a group that doesn't
+   have a real one — even though `cue_identifiers` was fully populated and
+   the file round-tripped cleanly through the proto schema. Fixed by
+   reusing the template Presentation's own first `CueGroup` object (real
+   `group.uuid` intact) and only clearing/replacing its `cue_identifiers`,
+   rather than calling `pres.cue_groups.add()` for a fresh one.
+
+**The rule this confirms**: when starting a brand-new Presentation, load a
+real, working `.pro` file as a template, strip its `cues`/`arrangements`
+down to empty, and reuse its existing `cue_groups[0]` object rather than
+constructing any of these wrapper messages from scratch. See
+`propresenter_toolkit.new_presentation_from_template()`, which does exactly
+this.
+
+## Media that breaks when a Slide moves between documents
+
+A Theme's own background/decoration images use
+`media.url.local.root = ROOT_CURRENT_RESOURCE` ("relative to whatever
+document currently owns this resource"). That resolves correctly inside the
+Theme itself. Confirmed by a real failure: cloning one of a Theme's layouts
+into a *different* Presentation carried this relative path along with it,
+and ProPresenter then tried to resolve it against the new document (which
+has no matching folder) instead of falling back to the perfectly-valid
+`absolute_string` sitting right next to it — result: a broken-image icon on
+a file that genuinely exists exactly where it says.
+
+**Fix**: after cloning any Slide from a document other than the one you're
+building into, clear the `local` relative-path field on every media
+reference that still carries `ROOT_CURRENT_RESOURCE` (both `media.url` and
+`media.image.file.local_url`) — leave `absolute_string` untouched. This
+doesn't move or copy the file; it just stops the broken relative lookup
+from shadowing the working absolute one. See
+`propresenter_toolkit.fix_cross_document_media()`.
+
+## RTF: sample text isn't always one simple run
+
+A real Theme's "Text" placeholder can have sample content spanning several
+verses with inline `\super N\nosupersub` verse-number superscripts — not
+the single plain run `rtf_substitute()` expects. When that's the case,
+don't try to pattern-match the sample; extract everything up to the last
+`\cf2 ` (or similar) control word as a prefix and build fresh RTF from
+there — you keep the theme's exact font/size/color with none of the
+sample's incidental structure. See `propresenter_toolkit.extract_rtf_prefix()`
+and `build_rtf_from_template()`.
+
+For partial emphasis within a line (a real church's own convention: "on
+Sunday, underlining is used for emphasis instead of bolding" — so bold in
+the source content should become underline in the actual slide), wrap just
+that span in `\ul ... \ulnone` rather than the whole run. See
+`propresenter_toolkit.build_rtf_with_underline()`.
+
+## Sourcing accurate reference text (e.g. scripture)
+
+When content only gives a citation ("Deuteronomy 6:4 CSB") and not the
+actual wording — common when it was copied from a live embed that a page
+fetch flattens to just the reference — don't generate the text from memory.
+For scripture specifically, look it up from a real source in the cited
+translation (e.g. biblegateway.com supports a `?search=Book+C%3AV&version=XXX`
+query, including semicolon-separated multi-reference lookups) rather than
+risking a misquote of a modern, copyrighted translation. This is a normal,
+bounded, legitimate use (a handful of verses for a church's own service),
+not bulk reproduction — but accuracy still matters more than speed here.
+
 ## Practical gotchas encountered in the wild
 
 - A `.probundle` exported by ProPresenter may extract its inner `.pro`

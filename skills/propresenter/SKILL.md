@@ -168,7 +168,23 @@ essentials:
   explicitly know about stays correct automatically. Use `CopyFrom()` on
   a real template `Cue`/`Slide`/`Action`, then only touch UUIDs (always
   regenerate — never reuse an existing UUID) and the specific
-  text/media/identification fields that need new values.
+  text/media/identification fields that need new values. **This applies to
+  the Presentation container itself, not just its cues** — confirmed by a
+  real failure: a `Presentation()` built from scratch was missing several
+  required-in-practice fields, and even after fixing that, still showed
+  **zero slides** in ProPresenter because a freshly-built `CueGroup` has no
+  real `group.uuid` (ProPresenter keys slide-group display off it). Starting
+  a brand-new Presentation? Use
+  `propresenter_toolkit.new_presentation_from_template()` — never
+  `presentation_pb2.Presentation()` directly. Full writeup in
+  `references/schema-notes.md`.
+- **A Slide cloned from a Theme (or any other document) can carry a media
+  reference that only resolves inside that OTHER document.** Confirmed by a
+  real failure: a Theme's own background image uses a relative path scoped
+  to "wherever this document lives," which breaks once the slide is cloned
+  elsewhere — even though the absolute path right next to it is completely
+  correct. Call `propresenter_toolkit.fix_cross_document_media()` on every
+  Slide you clone from a different document before using it.
 - **Auto-fit long text** by setting
   `element.text.scale_behavior = SCALE_BEHAVIOR_SCALE_FONT_DOWN` (value
   `2`) on generated text elements when the input data has variable-length
@@ -181,24 +197,42 @@ essentials:
 This is the workflow that needs **no existing hand-built slide at all** —
 just a Theme the user already has, and content from wherever (pasted from
 a Notion page, a doc, an email, a spreadsheet row, typed directly in
-chat).
+chat). If the source only gives citations rather than actual wording (a
+Notion scripture embed often flattens to just "Deuteronomy 6:4 CSB" once
+fetched, for example), look the real text up in the cited source/translation
+rather than generating it from memory — see "Sourcing accurate reference
+text" in `references/schema-notes.md`. Signed download URLs pulled from a
+source page (S3 links embedded in a Notion fetch, etc.) are often short-lived
+(under 5 minutes) — re-fetch immediately before downloading if much time has
+passed, rather than reusing URLs from earlier in the conversation.
 
 1. Copy the Theme file (`Themes/<Name>/Theme`), round-trip validate it as
    `Template.Document`.
 2. List its `slides[].name` values and show them to the user (or match
    against what they asked for, e.g. "the Speaker Title layout") — these
    are the named layouts visible in ProPresenter's own theme picker.
-3. Clone the chosen `Template.Slide.base_slide`.
+3. Clone the chosen `Template.Slide.base_slide`, then immediately call
+   `propresenter_toolkit.fix_cross_document_media()` on it — a Theme's own
+   background/decor images use a path that only resolves inside the Theme
+   itself and will show as broken once cloned elsewhere (see
+   `references/schema-notes.md`).
 4. Match the user's content to elements **by `Graphics.Element.name`**
    (e.g. a layout's `"Name 1"` element is where a person's name goes,
    `"Title 1"` is their role/title) — inspect the layout once to learn its
    placeholder names, then map fields to them. Don't guess by position.
 5. Substitute text using each placeholder's own existing `rtf_data` as the
    template (see the RTF section above) so the Theme's exact styling is
-   preserved with zero hand-authored RTF.
-6. Wrap the result in a new `Cue` + `PRESENTATION_SLIDE` action, add it to
-   a `Presentation` document (a fresh one, or the user's real show — as a
-   new file either way, per the safeguards above).
+   preserved with zero hand-authored RTF. If a placeholder's sample text
+   spans multiple runs (verse-number superscripts, etc.), use
+   `extract_rtf_prefix()` instead of `rtf_substitute()` — see schema-notes.
+6. Wrap the result in a new `Cue` + `PRESENTATION_SLIDE` action. For the
+   containing `Presentation` document, start from
+   `propresenter_toolkit.new_presentation_from_template()` (any real
+   working `.pro` file as the donor) rather than constructing one from
+   scratch — a from-scratch Presentation is missing fields ProPresenter
+   needs and, critically, produces a `CueGroup` with no real identity that
+   ProPresenter won't display any slides under. Write to a new file either
+   way, per the safeguards above.
 7. Round-trip validate, write to a new file, report what you built.
 
 See `examples/build_slides_from_theme_and_text.py` for the full worked

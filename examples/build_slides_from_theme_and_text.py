@@ -17,9 +17,13 @@ references/schema-notes.md.
 --- Before running ---
 
 1. Run ../setup.sh once.
-2. Pick which Theme + which of its named layouts you want
+2. Get a copy of ANY real, working presentation from the user's library --
+   it's only used as a donor for the parts every valid Presentation needs
+   (application_info, background, a CueGroup with a real identity, etc.)
+   and is never modified in place. See TEMPLATE_PRESENTATION below.
+3. Pick which Theme + which of its named layouts you want
    (STEP_A below shows you how to list them).
-3. Fill in CONFIG, including CONTENT_ITEMS -- in real use, this is where
+4. Fill in CONFIG, including CONTENT_ITEMS -- in real use, this is where
    you'd drop in whatever the user gave you (pasted Notion text, a CSV,
    a spreadsheet export, etc.), turned into a list of dicts keyed by the
    layout's placeholder element names.
@@ -36,6 +40,14 @@ import propresenter_toolkit as pt  # noqa: E402
 PROTO_VERSION = "Proto7.16.2"
 THEME_FILE = "/Users/you/Documents/ProPresenter/Themes/One Table/Theme"  # read-only source
 LAYOUT_NAME = "SLIDES - Speaker Title"   # must match a Template.Slide.name exactly
+
+# ANY real presentation from the user's library -- a copy, read-only. Used
+# only as a donor for the Presentation-level fields a from-scratch document
+# is missing (confirmed by a real failure: a from-scratch Presentation
+# opened to ZERO slides in ProPresenter, twice, for two different reasons --
+# see new_presentation_from_template()'s docstring). Pick literally any
+# working .pro file; its own content is discarded, only its shape is kept.
+TEMPLATE_PRESENTATION = "./AnyRealShow-COPY.pro"
 
 # One dict per slide you want to generate. Keys must match the layout's
 # placeholder element names exactly (see STEP_A's printed list below).
@@ -79,15 +91,20 @@ def main():
     print(f"\nUsing layout {LAYOUT_NAME!r} with placeholders: {list(elements_by_name)}")
 
     # ---- STEP B: build one new Cue per content item ----------------------
-    pres = presentation_pb2.Presentation()
-    pres.name = "Generated from Theme"
-    pres.uuid.string = pt.new_uuid()
-    cue_group = pres.cue_groups.add()
+    # Clone a real Presentation as the container -- never build one from
+    # scratch (see new_presentation_from_template()'s docstring for why).
+    pres, cue_group = pt.new_presentation_from_template(
+        TEMPLATE_PRESENTATION, presentation_pb2.Presentation, "Generated from Theme"
+    )
 
     for item in CONTENT_ITEMS:
         base_slide = layout.base_slide.__class__()
         base_slide.CopyFrom(layout.base_slide)
         base_slide.uuid.string = pt.new_uuid()
+        # the layout's own background/decor images carry a path that's only
+        # valid relative to the THEME's own folder -- fix it now that this
+        # slide is being cloned into a different document (see docstring).
+        pt.fix_cross_document_media(base_slide)
 
         for placeholder_name, new_text in item.items():
             el = next(
