@@ -1,0 +1,12 @@
+.venv/
+pygen/
+__pycache__/
+*.pyc
+.DS_Store
+
+# never accidentally commit real ProPresenter files pulled in for testing
+*.pro
+*.probundle
+*.proworkspace
+Props-COPY.bin
+Props
