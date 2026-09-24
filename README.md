@@ -33,17 +33,34 @@ doesn't have to be re-derived from scratch every time.
 
 ## Quick start
 
+**Option A — install as a Claude Code plugin (recommended):**
+
+```
+claude
+/plugin marketplace add rainman80s/propresenter-claude-skill
+/plugin install propresenter-claude-skill@propresenter-claude-skill
+```
+
+This makes the skill available from any folder, in any future Claude Code
+session, without needing to `cd` into a clone of this repo first.
+
+**Option B — clone it directly:**
+
 ```bash
 git clone https://github.com/rainman80s/propresenter-claude-skill.git
 cd propresenter-claude-skill
 ./setup.sh
 ```
 
-Then, in a Claude Code session in this directory, just ask for what you
-want — e.g. "I built one slide for our staff directory in ProPresenter,
-here's the rest of the staff as a spreadsheet, can you build the other 20
-slides in the same style?" Claude will follow `skills/propresenter/SKILL.md`
-automatically.
+Then start Claude Code inside that folder.
+
+**Either way**, once it's loaded, just ask for what you want — e.g. "I
+built one slide for our staff directory in ProPresenter, here's the rest
+of the staff as a spreadsheet, can you build the other 20 slides in the
+same style?" Claude will follow `skills/propresenter/SKILL.md`
+automatically. Either install path also needs `./setup.sh` run once (from
+wherever the plugin/clone lands) to compile the local Python bindings —
+Claude will typically do this for you when it first needs them.
 
 If you're not using Claude Code, the `examples/` scripts are fully
 standalone, runnable Python and can be adapted by hand.
