@@ -190,7 +190,31 @@ essentials:
   `2`) on generated text elements when the input data has variable-length
   strings (e.g. names of very different lengths) — this lets ProPresenter
   shrink the font at render time instead of the text overflowing its box,
-  which you can't reliably predict without real font metrics.
+  which you can't reliably predict without real font metrics. For content
+  that's naturally segmented (a multi-verse scripture passage), prefer
+  actually splitting it across slides at a natural boundary (a verse
+  ending) over relying on shrinking alone — see schema-notes.md.
+- **Adding elements to an EXISTING slide** (a real show's own blank
+  placeholder cue, not a freshly-cloned one) needs two things confirmed by
+  real failure: clone the WHOLE `Slide.Element` wrapper, not just the inner
+  `Graphics.Element` (`propresenter_toolkit.clone_full_element()` — a new
+  element missing the wrapper's `info` bitmask renders nothing, no error),
+  and fix element stacking order afterward
+  (`propresenter_toolkit.fix_element_stacking_order()` — `Slide.elements`
+  is front-to-back, so elements appended with `.add()` land behind an
+  existing background, invisible, unless moved). Full writeup in
+  `references/schema-notes.md`.
+- **"Reveal one at a time" (a build request) is safer as a slide
+  sequence than a same-slide multi-element build.** A same-slide build
+  using several elements each with their own `build_in` — architecturally
+  supported and matching the exact convention confirmed for a single
+  element — came back broken/inaccessible in ProPresenter twice on a real
+  file, with no way to diagnose further in a text-only session. Use
+  `propresenter_toolkit.clone_cue()` / `splice_cue_after()` to build a
+  sequence of cues instead, each cumulatively showing one more item than
+  the last, advanced by the ordinary click-to-next-slide mechanism. See
+  schema-notes.md for the full reasoning, and revisit if a future session
+  gets real ProPresenter access to confirm what actually broke.
 
 ## Suggested workflow for "here's a Theme, here's some text, build the slide(s)"
 

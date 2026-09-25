@@ -250,6 +250,31 @@ def build_rtf_with_underline(prefix: bytes, before: str, underlined: str, after:
     )
 
 
+def build_rtf_multirun(prefix: bytes, runs) -> bytes:
+    """General version of build_rtf_with_underline: `runs` is a list of
+    (text, style) tuples, style a dict with optional 'bold'/'underline'
+    booleans, e.g. [("Fellowship: ", {"bold": True}), ("Opened up...", {})].
+    Handles any number of spans and combinations, not just one underlined
+    substring -- use this for content with multiple emphasized terms (a
+    bolded-label list, a passage with several separately-emphasized
+    phrases) where build_rtf_with_underline's single span isn't enough.
+    `prefix` should come from extract_rtf_prefix()."""
+    parts = [prefix, b"\\CocoaLigature0 "]
+    for text, style in runs:
+        open_codes, close_codes = b"", b""
+        if style.get("bold"):
+            open_codes += b"\\b "
+            close_codes = b"\\b0 " + close_codes
+        if style.get("underline"):
+            open_codes += b"\\ul "
+            close_codes = b"\\ulnone " + close_codes
+        parts.append(open_codes)
+        parts.append(rtf_escape_text(text))
+        parts.append(close_codes)
+    parts.append(b"}")
+    return b"".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Media helpers
 # ---------------------------------------------------------------------------
@@ -306,6 +331,49 @@ def fix_cross_document_media(base_slide) -> int:
     return fixed
 
 
+# ---------------------------------------------------------------------------
+# Adding elements to an EXISTING slide (not cloning a whole new one)
+# ---------------------------------------------------------------------------
+
+def clone_full_element(base_slide, template_slide_element, new_uuid_value=None):
+    """Append a new element to `base_slide`, cloned from a real, working
+    `Slide.Element` -- copying the WHOLE wrapper, not just its inner
+    `.element` (Graphics.Element). Confirmed by real failure: a new element
+    built by copying only `.element` renders nothing in ProPresenter, no
+    error -- the wrapper's own `info` field (a bitmask; real text
+    placeholders carry `info=3`, TEMPLATE|TEXT) has to come along too, and
+    manually setting `info=3` is more fragile than just cloning the whole
+    known-good wrapper. Returns the new Slide.Element so you can then set
+    its bounds/text/etc."""
+    new_el = base_slide.elements.add()
+    new_el.CopyFrom(template_slide_element)
+    new_el.element.uuid.string = new_uuid_value or new_uuid()
+    return new_el
+
+
+def fix_element_stacking_order(base_slide, elements_added_since_count, front_layer_count=1):
+    """`Slide.elements` order is front-to-back, not the reverse -- confirmed
+    against a real blank template whose own elements were `[icon,
+    background]`: the icon (meant to always show on top) is listed FIRST,
+    the full-bleed background LAST. Elements appended with `.add()`/
+    `clone_full_element()` land at the END of the list -- the back-most
+    layer, behind the background, invisible. Call this after adding new
+    elements to an EXISTING slide (pass the element count the slide had
+    *before* you started adding, e.g. `orig_count = len(base_slide.elements)`
+    at the top of your function): it moves everything added since then to
+    sit right after the front `front_layer_count` pre-existing elements and
+    before the rest (typically just the background). Default
+    `front_layer_count=1` matches the common `[icon, background]` case."""
+    all_els = list(base_slide.elements)
+    original = all_els[:elements_added_since_count]
+    new = all_els[elements_added_since_count:]
+    if not new:
+        return
+    reordered = original[:front_layer_count] + new + original[front_layer_count:]
+    del base_slide.elements[:]
+    base_slide.elements.extend(reordered)
+
+
 def pixel_dimensions(image_path: str) -> tuple[int, int]:
     """Get (width, height) in pixels. Uses macOS `sips`; if you're not on
     macOS, swap this for Pillow or another image library -- but get the
@@ -348,6 +416,45 @@ def playback_order(cue_group, uuid_to_cue: dict) -> list:
             raise KeyError(f"cue_identifiers references missing uuid {cid.string}")
         ordered.append(cue)
     return ordered
+
+
+def clone_cue(template_cue, cue_cls, name: str):
+    """A fresh, fully independent copy of `template_cue` (any real, working
+    Cue -- e.g. a blank placeholder already in the show) with brand new
+    UUIDs throughout: the cue itself, every action, and (for
+    PRESENTATION_SLIDE actions) the slide and every one of its elements.
+    `cue_cls` is the compiled Cue message class for your proto version
+    (passed in rather than imported here, to keep this module version-
+    agnostic). Use this whenever you need MORE cues than there are blank
+    placeholders for -- e.g. splitting one long scripture passage across
+    two slides, or building a "reveal one at a time" sequence (see
+    SKILL.md/schema-notes.md) -- rather than constructing a Cue from
+    scratch."""
+    cue = cue_cls()
+    cue.CopyFrom(template_cue)
+    cue.uuid.string = new_uuid()
+    cue.name = name
+    for action in cue.actions:
+        action.uuid.string = new_uuid()
+        if action.type == 11:  # ACTION_TYPE_PRESENTATION_SLIDE
+            base_slide = action.slide.presentation.base_slide
+            base_slide.uuid.string = new_uuid()
+            for el in base_slide.elements:
+                el.element.uuid.string = new_uuid()
+    return cue
+
+
+def splice_cue_after(presentation, cue_group, after_uuid: str, new_cue, uuid_cls) -> None:
+    """Add `new_cue` to `presentation.cues` and insert it into
+    `cue_group.cue_identifiers` immediately after `after_uuid`. `uuid_cls`
+    is the compiled UUID message class for your proto version."""
+    presentation.cues.append(new_cue)
+    ids = list(cue_group.cue_identifiers)
+    new_id = uuid_cls()
+    new_id.string = new_cue.uuid.string
+    reordered = insert_after(ids, after_uuid, [new_id])
+    del cue_group.cue_identifiers[:]
+    cue_group.cue_identifiers.extend(reordered)
 
 
 def insert_after(id_list, after_uuid: str, new_uuids: list):

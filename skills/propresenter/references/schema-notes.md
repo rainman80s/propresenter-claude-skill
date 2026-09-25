@@ -374,6 +374,77 @@ risking a misquote of a modern, copyrighted translation. This is a normal,
 bounded, legitimate use (a handful of verses for a church's own service),
 not bulk reproduction — but accuracy still matters more than speed here.
 
+## Adding elements to an EXISTING slide (not cloning a whole new one)
+
+A different, common pattern from "clone a whole template slide": a real
+show already has blank placeholder cues (a background + a corner icon, no
+text yet) and the job is to add content into them, leaving those two
+elements alone. Two things broke on a first real attempt at this, both
+silently — no error, ProPresenter just didn't show the new content:
+
+1. **Copy the whole `Slide.Element` wrapper, not just the inner
+   `Graphics.Element`.** The wrapper has its own `info` field (a bitmask;
+   real text placeholders carry `info = 3`, i.e.
+   `INFO_IS_TEMPLATE_ELEMENT | INFO_IS_TEXT_ELEMENT`). A new element added
+   via `elements.add()` starts with `info = 0`, and even with fully correct
+   `rtf_data`, ProPresenter did not render it — nothing, no warning. Do
+   `new_el.CopyFrom(template_slide_element)` (the `Slide.Element`), not
+   `new_el.element.CopyFrom(template_slide_element.element)`.
+2. **`Slide.elements` order is front-to-back, not the reverse.** Confirmed
+   from a real blank template's own element order: `[icon, background]` —
+   the icon (meant to always show on top) is listed *first*, the
+   full-bleed background *last*. Elements appended with `.add()` land at
+   the end of the list, i.e. treated as the back-most layer — behind the
+   background, invisible. After adding new elements to an existing slide,
+   move them so they sit after the front-most pre-existing element(s) and
+   before the background: `original[:1] + new_elements + original[1:]`
+   for the common two-element `[icon, background]` case (adjust the split
+   index if a given template has more front-layer elements).
+
+## "Reveal one at a time" (a build request): use a slide sequence, not
+## same-slide multi-element builds
+
+A same-slide multi-element build — several `Graphics.Element`s on ONE
+slide, each with its own `build_in` set to reveal on successive clicks —
+is architecturally supported by the schema (`Slide.Element.Build`,
+`Start.START_ON_CLICK` etc.), and a *single*-element build_in was
+confirmed working, with `build_in.elementUUID` set to that element's own
+uuid (verified against a real file). But building several such elements on
+one slide, using that exact same confirmed convention, came back
+broken/inaccessible in ProPresenter twice in a row on a real production
+file, with no way to inspect further in a text-only session to find out
+why.
+
+**Recommended approach instead**: implement "reveal one at a time" as a
+*sequence of separate slides/cues* — item N's slide shows items 1..N
+cumulatively (item 1's slide shows just item 1; item 2's slide shows items
+1 and 2; and so on). Advancing through them with a normal click-to-next
+(the single mechanism used everywhere else in a show, already known to
+work) reproduces the same "one at a time" visual the user asked for,
+without depending on the unverified same-slide multi-build mechanism. This
+means N cues instead of 1 for an N-item list — splice the extra cues into
+`cue_group.cue_identifiers` right after the previous one, same as any
+other cue insertion.
+
+If a future session gets real ProPresenter access (screen inspection, or a
+way to open the file and check) and confirms what actually breaks in the
+same-slide multi-build case, update this note — it may be something
+narrow and fixable (a missing `element_build_order` entry coordinating the
+builds, a delay/ordering field, something version-specific) rather than a
+fundamental limitation.
+
+## Long content can overflow its text box
+
+`scale_behavior = SCALE_BEHAVIOR_SCALE_FONT_DOWN` (see the RTF section
+above) is a reasonable default safety net, but for long, naturally-
+segmented content — a multi-verse scripture passage in particular — the
+user may want an actual split into multiple slides at a natural boundary
+(a verse ending) rather than a shrunk font. Ask, or use judgment: a 2-3
+sentence passage is fine in one box; 5-6 verses of narrative text usually
+isn't, and should become two slides split at a verse boundary, each
+re-citing its own sub-range (e.g. "Acts 2:42–44" / "Acts 2:45–47" rather
+than repeating the full original citation on both).
+
 ## Practical gotchas encountered in the wild
 
 - A `.probundle` exported by ProPresenter may extract its inner `.pro`

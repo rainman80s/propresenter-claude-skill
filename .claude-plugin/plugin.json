@@ -1,7 +1,7 @@
 {
   "name": "propresenter-claude-skill",
   "description": "Safely read, generate, and bulk-edit ProPresenter 7+ files (protobuf-based) -- duplicate slides across a data set, generate from Themes, wire up Props (e.g. QR overlays) -- with mandatory round-trip validation so a real show file is never at risk.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": {
     "name": "rainman80s"
   }
